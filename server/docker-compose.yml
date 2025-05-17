@@ -1,0 +1,36 @@
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: privy-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-privy_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-privy_password}
+      POSTGRES_DB: ${POSTGRES_DB:-privy_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - privy_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-privy_user} -d ${POSTGRES_DB:-privy_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  pgadmin:
+    image: dpage/pgadmin4:9.2.0
+    container_name: privy-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    volumes:
+      - privy_pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  privy_postgres_data:
+  privy_pgadmin_data:
