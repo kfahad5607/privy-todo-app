@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 import os
 from app.core.config import settings
 from app.core.logging import setup_logging, get_logger
-from app.api.endpoints import auth
+from app.api.endpoints import auth, todos
 from app.core.exceptions import BaseAppException
 from app.db.database import init_db, close_db
 
@@ -67,5 +67,6 @@ async def app_exception_handler(request: Request, exc: BaseAppException):
 
 # Include routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
+app.include_router(todos.router, prefix="/api/v1/todos", tags=["Todos"])
 
 logger.info(f"Application {settings.PROJECT_NAME} initialized successfully")
