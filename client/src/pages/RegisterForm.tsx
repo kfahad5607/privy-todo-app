@@ -1,9 +1,9 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
-import { useRegister } from '../../../hooks/useAuth';
-import type { RegisterCredentials } from '../../../types/auth';
-import { registerSchema } from './validationSchemas';
+import { useRegister } from '@/hooks/useAuth';
+import type { RegisterCredentials } from '@/types/auth';
+import { registerSchema } from '@/schemas/auth';
 
 export const RegisterForm = () => {
   const navigate = useNavigate();

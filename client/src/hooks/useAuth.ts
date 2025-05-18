@@ -1,4 +1,4 @@
-import { register, login, logout, refreshToken } from '../features/auth/api/authApi';
+import { register, login, logout, refreshToken } from '@/services/authService';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { jwtDecode } from 'jwt-decode';
 import type { AccessTokenJWTPayload, AuthState } from '../types/auth';

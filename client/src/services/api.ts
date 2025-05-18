@@ -1,4 +1,5 @@
 // src/api/axios.ts
+import type { AuthResponse } from '@/types/auth';
 import axios from 'axios';
 
 const BASE_API_URL = 'http://localhost:8000/api/v1';
@@ -27,12 +28,15 @@ api.interceptors.response.use(
     const originalRequest = err.config;
 
     // Avoid infinite loop
+    console.log('err', err.response?.status, originalRequest);
     if (err.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        const res = await api.post('/refresh');
-        setAccessToken(res.data.access_token); // Save new token
+        const res = await axios.post<AuthResponse>(`${BASE_API_URL}/auth/refresh`);
+
+        setAccessToken(res.data.access_token);
         originalRequest.headers.Authorization = `Bearer ${res.data.access_token}`;
+
         return api(originalRequest);
       } catch (refreshErr) {
         return Promise.reject(refreshErr);

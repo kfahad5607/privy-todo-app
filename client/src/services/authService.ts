@@ -1,5 +1,5 @@
-import { api, setAccessToken } from '../../../services/api';
-import type { AuthResponse, LoginCredentials, RegisterCredentials, User } from '../../../types/auth';
+import { api, setAccessToken } from '@/services/api';
+import type { AuthResponse, LoginCredentials, RegisterCredentials, User } from '@/types/auth';
 
 
 export const login = async (credentials: LoginCredentials): Promise<AuthResponse> => {
@@ -25,11 +25,12 @@ export const register = async (credentials: RegisterCredentials): Promise<User> 
 };
 
 export const logout = async (): Promise<void> => {
-  await api.post(`/auth/logout`, {}, { withCredentials: true });
+  await api.post('/auth/logout', {}, { withCredentials: true });
 }; 
 
 export const refreshToken = async ({ signal }: { signal?: AbortSignal }): Promise<AuthResponse> => {
-  const response = await api.post<AuthResponse>(`/auth/refresh`, {}, { withCredentials: true, signal });
+  const response = await api.post<AuthResponse>('/auth/refresh', {}, { withCredentials: true, signal });
+  setAccessToken(response.data.access_token);
 
   return response.data;
 };

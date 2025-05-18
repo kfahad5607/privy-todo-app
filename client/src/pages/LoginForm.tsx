@@ -1,9 +1,9 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
-import { useLogin } from '../../../hooks/useAuth';
-import type { LoginCredentials } from '../../../types/auth';
-import { loginSchema } from './validationSchemas';
+import { useLogin } from '../hooks/useAuth';
+import type { LoginCredentials } from '../types/auth';
+import { loginSchema } from '../schemas/auth';
 
 export const LoginForm = () => {
   const navigate = useNavigate();
