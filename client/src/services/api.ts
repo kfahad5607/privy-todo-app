@@ -2,7 +2,8 @@
 import type { AuthResponse } from '@/types/auth';
 import axios from 'axios';
 
-const BASE_API_URL = 'http://localhost:8000/api/v1';
+const BASE_API_URL = import.meta.env.VITE_API_URL;
+// const BASE_API_URL = 'http://localhost:8000/api/v1';
 
 let accessToken = ''; // Store in memory
 

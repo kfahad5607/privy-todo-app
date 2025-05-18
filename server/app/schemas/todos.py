@@ -38,7 +38,6 @@ class TodoFilter(BaseModel):
     is_bookmarked: Optional[bool] = None
     search: Optional[str] = None
     parent_id: Optional[int] = None
-    columns: Optional[str] = None,
 
 class PaginationParams(BaseModel):
     page: int = 1
