@@ -122,6 +122,11 @@ async def refresh_token(
 ) -> Any:
     try:
         token = request.cookies.get("refresh_token")
+        if not token:
+            raise UnauthorizedException(
+                message="Invalid refresh token"
+            )
+        
         payload = verify_token(token)
         if not payload:
             raise UnauthorizedException(

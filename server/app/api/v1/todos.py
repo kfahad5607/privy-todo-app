@@ -1,6 +1,8 @@
 from collections import defaultdict
 from typing import Any, List, Tuple
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import and_, select, desc, asc
@@ -17,7 +19,7 @@ from app.schemas.todos import (
     TodoFilter,
     PaginationParams
 )
-from app.core.exceptions import (BaseAppException, ResourceNotFoundException, ValidationException)
+from app.core.exceptions import (PG_FOREIGN_KEY_VIOLATION, BaseAppException, ResourceNotFoundException, ValidationException, extract_constraint_name)
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -48,10 +50,6 @@ async def create_todo(
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
     try:
-        # If parent_id is provided, verify it exists and belongs to the user
-        if todo_in.parent_id < 1:
-            todo_in.parent_id = None
-
         if todo_in.parent_id:
             parent = await db.get(Todo, todo_in.parent_id)
             if not parent or parent.user_id != current_user.id:
@@ -73,6 +71,31 @@ async def create_todo(
         await db.refresh(todo)
 
         return TodoResponse(**todo.model_dump())
+    
+    except IntegrityError as e:
+        orig = getattr(e, 'orig', None)
+        pgcode = getattr(orig, 'sqlstate', None)
+
+        if not pgcode and hasattr(orig, 'pgcode'):
+            pgcode = orig.pgcode
+
+        if pgcode:
+            if pgcode == PG_FOREIGN_KEY_VIOLATION:
+                constraint_name = extract_constraint_name(str(orig))
+
+                entity_constraint_map = {
+                    'todos_parent_id_fkey': {
+                        'label': 'Parent Todo',
+                        'id': todo_in.parent_id,
+                    },
+                }
+
+                entity_info = entity_constraint_map.get(constraint_name, {})
+                entity_name = entity_info.get('label', 'Unknown entity')
+                entity_id = entity_info.get('id', 'unknown')
+
+                logger.warning(f"Foreign key violation: {entity_name} with ID '{entity_id}' does not exist")
+                raise ValidationException(f"{entity_name} with ID '{entity_id}' does not exist.") 
     except ValidationException:
         raise
     except Exception as e:
@@ -89,42 +112,6 @@ async def list_todos(
     pagination: PaginationParams = Depends()
 ) -> Any:
     try:
-        requested_columns = ["id", "title", "status", "is_bookmarked", "order", "parent_id", "created_at", "modified_at"]
-
-        if filters.columns:
-            requested_columns = [col.strip() for col in filters.columns.split(",")]
-
-            # Ensure ID is always included for proper identification
-            if "id" not in requested_columns:
-                requested_columns.append("id")
-
-            # Validate column names against schema
-            valid_columns = list(TodoResponse.model_fields.keys())
-            invalid_columns = [col for col in requested_columns if col not in valid_columns]
-        
-            if invalid_columns:
-                logger.warning(f"Invalid column names requested: {invalid_columns}")
-                raise ValidationException(
-                    f"Invalid column(s): {', '.join(invalid_columns)}. Valid columns are: {', '.join(valid_columns)}"
-                )
-                
-        selected_columns = [getattr(Todo, col) for col in requested_columns]
-
-        # Build query options
-        # db_query_options = [load_only(*selected_columns)]
-        # if "parent_id" in requested_columns:
-        #     db_query_options.insert(0, selectinload(Todo.parent).load_only(Todo.id, Todo.title))
-
-        # Base query
-        # stmt = (
-        #     select(Todo)
-        #     .where(Todo.parent_id.is_(None))  # only top-level todos
-        #     .options(selectinload(Todo.subtasks))  # eager load subtasks
-        #     .order_by(Todo.order)
-        #     .offset(offset)
-        #     .limit(page_size)
-        # )
-
         parent = aliased(Todo, name="t")
         subtask = aliased(Todo, name="st")
 
@@ -153,6 +140,11 @@ async def list_todos(
         else:
             db_query = db_query.order_by(asc(order_column))
 
+        # Get total count for pagination
+        count_query = select(func.count()).select_from(db_query.subquery())
+        total_records = await db.execute(count_query)
+        total_records = total_records.scalar_one()
+
         # Apply pagination
         db_query = db_query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
 
@@ -160,8 +152,14 @@ async def list_todos(
         result = await db.execute(db_query)
         todo_pairs = result.all()
 
+
         todos = nest_subtasks(todo_pairs)
-        return todos
+        return {
+            "items": todos,
+            "total_count": total_records,
+            "page": pagination.page,
+            "page_size": pagination.page_size
+        }
     except ValidationException:
         raise
     except Exception as e:
