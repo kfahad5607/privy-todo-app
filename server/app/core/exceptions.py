@@ -44,3 +44,7 @@ class ResourceNotFoundException(BaseAppException):
 class ValidationException(BaseAppException):
     def __init__(self, message: str, status_code: int = status.HTTP_400_BAD_REQUEST):
         super().__init__(message, status_code=status_code)
+
+class UnauthorizedException(BaseAppException):
+    def __init__(self, message: str, status_code: int = status.HTTP_401_UNAUTHORIZED):
+        super().__init__(message, status_code=status_code)

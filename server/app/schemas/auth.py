@@ -3,7 +3,6 @@ from pydantic import BaseModel, EmailStr
 
 class Token(BaseModel):
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
 
 class TokenPayload(BaseModel):
@@ -25,7 +24,4 @@ class UserResponse(BaseModel):
     username: str
     email: EmailStr
     name: str
-    is_active: bool 
-
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+    is_active: bool
