@@ -10,6 +10,7 @@ import { UnauthenticatedRoute } from '@/components/UnauthenticatedRoute';
 import Home from '@/pages/Home';
 import { Todos } from '@/pages/Todos';
 import SpinnerLoader from './components/ui/SpinnerLoader';
+import { Layout } from './components/layout/Layout';
 
 const queryClient = new QueryClient();
 
@@ -46,7 +47,9 @@ const App = () => {
           <Route path="/register" element={<RegisterForm />} />
         </Route>
         <Route element={<ProtectedRoute />} >
-          <Route path="/todos" element={<Todos />} />
+          <Route element={<Layout />} >
+            <Route path="/todos" element={<Todos />} />
+          </Route>
         </Route>
       </Routes>
     </Router>
