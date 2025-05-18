@@ -6,7 +6,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.security import verify_token
 from app.db.database import get_db
-from app.models.user import User
+from app.models.users import User
 from app.schemas.auth import TokenPayload
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")

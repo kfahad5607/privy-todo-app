@@ -3,7 +3,7 @@ from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from app.core.config import settings
-from app.models.user import User
+from app.models.users import User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

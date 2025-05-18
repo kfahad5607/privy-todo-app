@@ -17,7 +17,7 @@ from app.core.security import (
     verify_token
 )
 from app.db.database import get_db
-from app.models.user import RefreshToken, User
+from app.models.users import RefreshToken, User
 from app.schemas.auth import Token, UserCreate, UserResponse
 from app.core.logging import get_logger
 

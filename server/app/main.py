@@ -1,13 +1,13 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import os
 from app.core.config import settings
 from app.core.logging import setup_logging, get_logger
-from app.api.endpoints import auth, todos
 from app.core.exceptions import BaseAppException
 from app.db.database import init_db, close_db
+from app.api.v1 import auth, todos
 
 # Set up central logging
 log_file = os.path.join(settings.LOG_DIR, f"{settings.PROJECT_NAME.lower()}.log") if settings.LOG_DIR else None

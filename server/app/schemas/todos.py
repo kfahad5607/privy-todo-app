@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel
-from app.models.todo import TodoStatus
+from app.models.todos import TodoStatus
 
 class TodoBase(BaseModel):
     title: str
@@ -45,3 +45,11 @@ class PaginationParams(BaseModel):
     page_size: int = 10
     order_by: str = "created_at"
     order_direction: str = "desc" 
+
+class TodoOrderUpdate(BaseModel):
+    todo_id: int
+    new_order: int
+
+class TodoReorderRequest(BaseModel):
+    reorders: List[TodoOrderUpdate]
+    parent_id: Optional[int] = None 

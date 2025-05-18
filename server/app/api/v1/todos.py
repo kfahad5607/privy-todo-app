@@ -3,14 +3,15 @@ from typing import Any, List, Tuple
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select, desc, asc
+from sqlmodel import and_, select, desc, asc
 
 from app.core.deps import get_current_active_user
 from app.db.database import get_db
-from app.models.todo import Todo
-from app.models.user import User
+from app.models.todos import Todo
+from app.models.users import User
 from app.schemas.todos import (
     TodoCreate,
+    TodoReorderRequest,
     TodoUpdate,
     TodoResponse,
     TodoFilter,
@@ -256,3 +257,68 @@ async def delete_todo(
     except Exception as e:
         logger.error(f"Error deleting todo: {e}", exc_info=True)
         raise BaseAppException("Could not delete todo. Please try again later.") from e
+
+@router.post("/reorder", response_model=List[TodoResponse])
+async def reorder_todos(
+    *,
+    db: AsyncSession = Depends(get_db),
+    reorder_request: TodoReorderRequest,
+    current_user: User = Depends(get_current_active_user)
+) -> Any:
+    try:
+        # Get all todos that need to be reordered
+        todo_ids = [reorder.todo_id for reorder in reorder_request.reorders]
+        query = select(Todo).where(
+            and_(
+                Todo.id.in_(todo_ids),
+                Todo.user_id == current_user.id
+            )
+        )
+        result = await db.execute(query)
+        todos = result.scalars().all()
+
+        # Verify all todos exist and belong to the user
+        if len(todos) != len(todo_ids):
+            raise ValidationException(
+                message="One or more todos not found"
+            )
+
+        # If parent_id is provided, verify it exists and belongs to the user
+        if reorder_request.parent_id is not None:
+            parent = await db.get(Todo, reorder_request.parent_id)
+            if not parent or parent.user_id != current_user.id:
+                raise ResourceNotFoundException(
+                    message="Parent todo not found"
+                )
+            # Verify all todos are subtasks of the specified parent
+            for todo in todos:
+                if todo.parent_id != reorder_request.parent_id:
+                    raise ValidationException(
+                        message="All todos must be subtasks of the specified parent"
+                    )
+        else:
+            # Verify all todos are root-level todos (no parent)
+            for todo in todos:
+                if todo.parent_id is not None:
+                    raise ValidationException(
+                        message="All todos must be root-level todos when no parent is specified"
+                    )
+
+        # Create a mapping of todo_id to new order
+        order_mapping = {reorder.todo_id: reorder.new_order for reorder in reorder_request.reorders}
+
+        # Update todos with new orders
+        for todo in todos:
+            todo.order = order_mapping[todo.id]
+
+        await db.commit()
+        
+        # Return updated todos
+        return todos
+    except ValidationException:
+        raise
+    except ResourceNotFoundException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reordering todos: {e}", exc_info=True)
+        raise BaseAppException("Could not reorder todos. Please try again later.") from e
