@@ -1,15 +1,9 @@
-from collections import defaultdict
-from typing import Any, List, Tuple
+from typing import Any, List
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import func
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import and_, select, desc, asc
 
 from app.core.deps import get_current_active_user
 from app.db.database import get_db
-from app.models.todos import Todo
 from app.models.users import User
 from app.schemas.todos import (
     TodoCreate,
@@ -19,28 +13,12 @@ from app.schemas.todos import (
     TodoFilter,
     PaginationParams
 )
-from app.core.exceptions import (PG_FOREIGN_KEY_VIOLATION, BaseAppException, ResourceNotFoundException, ValidationException, extract_constraint_name)
 from app.core.logging import get_logger
+from app.services.todos import TodoService
 
 logger = get_logger(__name__)
 
 router = APIRouter()
-
-def nest_subtasks(todo_pairs: List[Tuple[Todo, Todo]]) -> List[Todo]:
-    todos_dict = {}
-    subtasks_map = defaultdict(list)
-
-    for parent, sub in todo_pairs:
-        parent_response = TodoResponse(**parent.model_dump())
-        if parent.id not in todos_dict:
-            todos_dict[parent.id] = parent_response
-        if sub:
-            subtasks_map[parent.id].append(sub)
-    
-    for parent_id, subtasks in subtasks_map.items():
-        todos_dict[parent_id].subtasks.extend(subtasks)
-
-    return list(todos_dict.values())
 
 @router.post("", response_model=TodoResponse)
 async def create_todo(
@@ -49,59 +27,8 @@ async def create_todo(
     todo_in: TodoCreate,
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
-    try:
-        if todo_in.parent_id:
-            parent = await db.get(Todo, todo_in.parent_id)
-            if not parent or parent.user_id != current_user.id:
-                raise ValidationException(
-                    message="Parent todo not found"
-                )
-            # Verify parent doesn't have a parent (one-level nesting only)
-            if parent.parent_id:
-                raise ValidationException(
-                    message="Cannot add subtask to a subtask"
-                )
-
-        todo = Todo(
-            **todo_in.model_dump(),
-            user_id=current_user.id
-        )
-        db.add(todo)
-        await db.commit()
-        await db.refresh(todo)
-
-        return TodoResponse(**todo.model_dump())
-    
-    except IntegrityError as e:
-        orig = getattr(e, 'orig', None)
-        pgcode = getattr(orig, 'sqlstate', None)
-
-        if not pgcode and hasattr(orig, 'pgcode'):
-            pgcode = orig.pgcode
-
-        if pgcode:
-            if pgcode == PG_FOREIGN_KEY_VIOLATION:
-                constraint_name = extract_constraint_name(str(orig))
-
-                entity_constraint_map = {
-                    'todos_parent_id_fkey': {
-                        'label': 'Parent Todo',
-                        'id': todo_in.parent_id,
-                    },
-                }
-
-                entity_info = entity_constraint_map.get(constraint_name, {})
-                entity_name = entity_info.get('label', 'Unknown entity')
-                entity_id = entity_info.get('id', 'unknown')
-
-                logger.warning(f"Foreign key violation: {entity_name} with ID '{entity_id}' does not exist")
-                raise ValidationException(f"{entity_name} with ID '{entity_id}' does not exist.") 
-    except ValidationException:
-        raise
-    except Exception as e:
-        logger.error(f"Error creating todo: {e}", exc_info=True)
-        raise BaseAppException("Could not create todo. Please try again later.") from e
-
+    todo_service = TodoService(db)
+    return await todo_service.create_todo(todo_in, current_user)
 
 @router.get("")
 async def list_todos(
@@ -111,61 +38,8 @@ async def list_todos(
     filters: TodoFilter = Depends(),
     pagination: PaginationParams = Depends()
 ) -> Any:
-    try:
-        parent = aliased(Todo, name="t")
-        subtask = aliased(Todo, name="st")
-
-        db_query = (
-            select(parent, subtask)
-            .join_from(parent, subtask, subtask.parent_id == parent.id, isouter=True)
-            .where((parent.user_id == current_user.id) & (parent.parent_id.is_(None)))
-            .order_by(parent.order.desc())
-        )
-
-        # Apply filters
-        if filters.status:
-            db_query = db_query.where(parent.status == filters.status)
-        if filters.is_bookmarked is not None:
-            db_query = db_query.where(parent.is_bookmarked == filters.is_bookmarked)
-        if filters.parent_id is not None:
-            db_query = db_query.where(parent.parent_id == filters.parent_id)
-        if filters.search and filters.search.strip():
-            search_term = f"%{filters.search.strip()}%"
-            db_query = db_query.where(parent.title.ilike(search_term))
-
-        # Apply ordering
-        order_column = getattr(parent, pagination.order_by, parent.order)
-        if pagination.order_direction == "desc":
-            db_query = db_query.order_by(desc(order_column))
-        else:
-            db_query = db_query.order_by(asc(order_column))
-
-        # Get total count for pagination
-        count_query = select(func.count()).select_from(db_query.subquery())
-        total_records = await db.execute(count_query)
-        total_records = total_records.scalar_one()
-
-        # Apply pagination
-        db_query = db_query.offset((pagination.page - 1) * pagination.page_size).limit(pagination.page_size)
-
-        # Execute query
-        result = await db.execute(db_query)
-        todo_pairs = result.all()
-
-
-        todos = nest_subtasks(todo_pairs)
-        return {
-            "items": todos,
-            "total_count": total_records,
-            "page": pagination.page,
-            "page_size": pagination.page_size
-        }
-    except ValidationException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrieving todos: {e}", exc_info=True)
-        raise BaseAppException("Could not retrieve todos. Please try again later.") from e
-
+    todo_service = TodoService(db)
+    return await todo_service.list_todos(current_user, filters, pagination)
 
 @router.get("/{todo_id}", response_model=TodoResponse)
 async def get_todo(
@@ -174,18 +48,8 @@ async def get_todo(
     todo_id: int,
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
-    try:
-        todo = await db.get(Todo, todo_id)
-        if not todo or todo.user_id != current_user.id:
-            raise ResourceNotFoundException(
-                message="Todo not found"
-            )
-        return TodoResponse(**todo.model_dump())
-    except ResourceNotFoundException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrieving todo: {e}", exc_info=True)
-        raise BaseAppException("Could not retrieve todo. Please try again later.") from e
+    todo_service = TodoService(db)
+    return await todo_service.get_todo(todo_id, current_user)
 
 @router.patch("/{todo_id}", response_model=TodoResponse)
 async def update_todo(
@@ -195,44 +59,8 @@ async def update_todo(
     todo_in: TodoUpdate,
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
-    try:
-        todo = await db.get(Todo, todo_id)
-        if not todo or todo.user_id != current_user.id:
-            raise ResourceNotFoundException(
-                message="Todo not found"
-            )
-
-        # If updating parent_id, verify the new parent exists and belongs to the user
-        if todo_in.parent_id is not None:
-            if todo_in.parent_id == todo_id:
-                raise ValidationException(
-                    message="Todo cannot be its own parent"
-                )
-            parent = await db.get(Todo, todo_in.parent_id)
-            if not parent or parent.user_id != current_user.id:
-                raise ResourceNotFoundException(
-                    message="Parent todo not found"
-                )
-            # Verify parent doesn't have a parent (one-level nesting only)
-            if parent.parent_id:
-                raise ValidationException(
-                    message="Cannot add subtask to a subtask"
-                )
-
-        # Update todo
-        todo_data = todo_in.model_dump(exclude_unset=True)
-        for field, value in todo_data.items():
-            setattr(todo, field, value)
-
-        await db.commit()
-        await db.refresh(todo)
-
-        return TodoResponse(**todo.model_dump())
-    except ResourceNotFoundException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating todo: {e}", exc_info=True)
-        raise BaseAppException("Could not update todo. Please try again later.") from e
+    todo_service = TodoService(db)
+    return await todo_service.update_todo(todo_id, todo_in, current_user)
 
 @router.delete("/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_todo(
@@ -241,20 +69,8 @@ async def delete_todo(
     todo_id: int,
     current_user: User = Depends(get_current_active_user)
 ) -> None:
-    try:
-        todo = await db.get(Todo, todo_id)
-        if not todo or todo.user_id != current_user.id:
-            raise ResourceNotFoundException(
-                message="Todo not found"
-            )
-        
-        await db.delete(todo)
-        await db.commit() 
-    except ResourceNotFoundException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting todo: {e}", exc_info=True)
-        raise BaseAppException("Could not delete todo. Please try again later.") from e
+    todo_service = TodoService(db)
+    await todo_service.delete_todo(todo_id, current_user)
 
 @router.post("/reorder", response_model=List[TodoResponse])
 async def reorder_todos(
@@ -263,60 +79,5 @@ async def reorder_todos(
     reorder_request: TodoReorderRequest,
     current_user: User = Depends(get_current_active_user)
 ) -> Any:
-    try:
-        # Get all todos that need to be reordered
-        todo_ids = [reorder.todo_id for reorder in reorder_request.reorders]
-        query = select(Todo).where(
-            and_(
-                Todo.id.in_(todo_ids),
-                Todo.user_id == current_user.id
-            )
-        )
-        result = await db.execute(query)
-        todos = result.scalars().all()
-
-        # Verify all todos exist and belong to the user
-        if len(todos) != len(todo_ids):
-            raise ValidationException(
-                message="One or more todos not found"
-            )
-
-        # If parent_id is provided, verify it exists and belongs to the user
-        if reorder_request.parent_id is not None:
-            parent = await db.get(Todo, reorder_request.parent_id)
-            if not parent or parent.user_id != current_user.id:
-                raise ResourceNotFoundException(
-                    message="Parent todo not found"
-                )
-            # Verify all todos are subtasks of the specified parent
-            for todo in todos:
-                if todo.parent_id != reorder_request.parent_id:
-                    raise ValidationException(
-                        message="All todos must be subtasks of the specified parent"
-                    )
-        else:
-            # Verify all todos are root-level todos (no parent)
-            for todo in todos:
-                if todo.parent_id is not None:
-                    raise ValidationException(
-                        message="All todos must be root-level todos when no parent is specified"
-                    )
-
-        # Create a mapping of todo_id to new order
-        order_mapping = {reorder.todo_id: reorder.new_order for reorder in reorder_request.reorders}
-
-        # Update todos with new orders
-        for todo in todos:
-            todo.order = order_mapping[todo.id]
-
-        await db.commit()
-        
-        # Return updated todos
-        return todos
-    except ValidationException:
-        raise
-    except ResourceNotFoundException:
-        raise
-    except Exception as e:
-        logger.error(f"Error reordering todos: {e}", exc_info=True)
-        raise BaseAppException("Could not reorder todos. Please try again later.") from e
+    todo_service = TodoService(db)
+    return await todo_service.reorder_todos(reorder_request, current_user)
