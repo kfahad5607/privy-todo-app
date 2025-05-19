@@ -6,7 +6,7 @@ This is a full-stack application built with FastAPI (Python) backend and React (
 
 Before you begin, ensure you have the following installed:
 - Python 3.8 or higher
-- Node.js 18 or higher
+- Node.js 20 or higher
 - Docker and Docker Compose
 - Git
 - A modern web browser
@@ -17,7 +17,6 @@ Before you begin, ensure you have the following installed:
 .
 ├── client/             # React frontend application
 ├── server/             # FastAPI backend application
-├── logs/              # Application logs
 └── README.md          # This file
 ```
 
@@ -77,18 +76,11 @@ source venv/bin/activate  # On Windows, use: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Run Database Migrations
-
-```bash
-# Apply database migrations
-alembic upgrade head
-```
-
-### 5. Start the Backend Server
+### 4. Start the Backend Server
 
 ```bash
 # Start the FastAPI server
-uvicorn main:app --reload
+python3 run.py
 ```
 
 The API will be available at `http://localhost:8000`
@@ -103,13 +95,15 @@ cd client
 npm install
 ```
 
-### 2. Environment Variables
+### 2. Environment Setup
 
-Create a `.env` file in the client directory:
+First, set up your environment variables:
 
-```env
-VITE_API_URL=http://localhost:8000
+```bash
+cp .env.example .env
 ```
+
+Edit the `.env` file with your desired configuration. The file contains the following variables:
 
 ### 3. Start the Development Server
 
@@ -151,7 +145,6 @@ The built files will be in the `client/dist` directory.
 - PostgreSQL
 - Alembic for database migrations
 - JWT for authentication
-- Python-dotenv for environment management
 
 ### Frontend
 - React 18
